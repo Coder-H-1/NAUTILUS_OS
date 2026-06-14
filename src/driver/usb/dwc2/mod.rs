@@ -37,6 +37,13 @@ pub fn init() {
     gusbcfg |= 1 << 29; // Force host mode
     write_reg(0x00C, gusbcfg);
 
+    // Force FS/LS Only to avoid SPLIT transactions
+    let mut hcfg = read_reg(0x400);
+    hcfg |= 1 << 2; // FSLSSupp
+    hcfg &= !3;     // Clear FSLSPclkSel
+    hcfg |= 1;      // Set FSLSPclkSel to 1 (48 MHz)
+    write_reg(0x400, hcfg);
+
     // Configure FIFOs (1024 words each)
     write_reg(0x024, 1024); // GRXFSIZ
     write_reg(0x028, (1024 << 16) | 1024); // GNPTXFSIZ

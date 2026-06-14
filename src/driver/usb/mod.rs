@@ -21,6 +21,12 @@ pub fn init() {
     
     setup::enumerate();
     hub::power_on_ports(1, 4); // Assume LAN9514 has 4 ports on addr 1
+    
+    // Give devices time to power up
+    crate::core::utils::delay(100);
+    
+    // Enumerate devices on hub ports, starting from address 2
+    hub::enumerate_ports(1, 4, 2);
 
     Hdmi::write_str("Phase 3 Init Done.\n");
 

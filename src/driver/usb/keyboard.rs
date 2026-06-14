@@ -6,24 +6,29 @@ pub struct Keyboard {
     dev_addr: u8,
     interrupt_in_ep: u8,
     last_keycode: u8,
+    next_pid: u8,
 }
 
 static mut KEYBOARD: Option<Keyboard> = None;
 
 impl Keyboard {
     pub fn new(dev_addr: u8, interrupt_in_ep: u8) -> Self {
-        Keyboard { dev_addr, interrupt_in_ep, last_keycode: 0 }
+        Keyboard { dev_addr, interrupt_in_ep, last_keycode: 0, next_pid: 0 }
     }
 
     pub fn poll(&mut self) -> Option<char> {
         let mut report = [0u8; 8];
 
-        let urb = Urb::new(
+        let mut urb = Urb::new(
             self.dev_addr, self.interrupt_in_ep, EndpointType::Interrupt, UrbDirection::In,
             8, report.as_mut_ptr(), 8
         );
+        urb.pid = self.next_pid;
         
         if submit_urb(&urb) {
+            // Toggle PID on successful transaction
+            self.next_pid = if self.next_pid == 0 { 2 } else { 0 };
+
             let keycode = report[2];
             if keycode != 0 && keycode != self.last_keycode {
                 self.last_keycode = keycode;

@@ -22,6 +22,7 @@ pub struct Urb {
     pub buffer: *mut u8,
     pub buffer_length: u32,
     pub speed: u8, // 0=High, 1=Full, 2=Low
+    pub pid: u8,   // 0=DATA0, 2=DATA1, 3=SETUP
 }
 
 impl Urb {
@@ -43,6 +44,7 @@ impl Urb {
             buffer,
             buffer_length,
             speed: 1, // Default Full Speed for built-in hub
+            pid: match direction { UrbDirection::Setup => 3, _ => 0 },
         }
     }
 }

@@ -1,5 +1,8 @@
 use core::arch::asm;
+use core::arch::global_asm;
 use crate::kernel::process::TrapFrame;
+
+global_asm!(include_str!("vector.S"));
 
 extern "C" {
     static vector_table: u8;
