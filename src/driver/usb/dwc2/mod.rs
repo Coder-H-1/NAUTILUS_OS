@@ -10,7 +10,7 @@ pub fn init() {
     
     // AHB Config: Set global interrupt mask and Enable DMA
     let mut gahbcfg = read_reg(0x008);
-    gahbcfg |= (1 << 5); // DMA Enable
+    gahbcfg |= 1 << 5; // DMA Enable
     gahbcfg |= 1;        // Global Interrupt Enable
     write_reg(0x008, gahbcfg);
     

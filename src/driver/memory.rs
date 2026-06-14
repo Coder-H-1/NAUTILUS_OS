@@ -1,7 +1,11 @@
+pub mod allocator;
+pub mod mmu;
+
 pub struct Memory;
 
 impl Memory {
     pub fn init() {
-        // Init memory driver (allocation, mapping)
+        allocator::init();
+        mmu::init();
     }
 }
