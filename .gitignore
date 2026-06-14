@@ -1,0 +1,10 @@
+# Ignore the entire BOOT_FILES directory
+BOOT_FILES/
+
+# You can also add other specific files or patterns here if needed
+# For example: *.log, temp_files/, etc.
+
+target/
+
+commands.txt 
+PROMPT.txt
