@@ -35,6 +35,7 @@ impl Urb {
         buffer: *mut u8,
         buffer_length: u32,
     ) -> Self {
+        let speed = if dev_addr <= 1 { 0 } else { 1 }; // Hubs are HS (0), devices are FS (1)
         Urb {
             dev_addr,
             ep_num,
@@ -43,7 +44,7 @@ impl Urb {
             max_packet_size,
             buffer,
             buffer_length,
-            speed: 1, // Default Full Speed for built-in hub
+            speed,
             pid: match direction { UrbDirection::Setup => 3, _ => 0 },
         }
     }

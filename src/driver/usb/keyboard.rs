@@ -17,24 +17,44 @@ impl Keyboard {
     }
 
     pub fn poll(&mut self) -> Option<char> {
-        let mut report = [0u8; 8];
+        let mut report_buf = [0u32; 2]; // 8 bytes, u32 for 4-byte alignment
 
-        let mut urb = Urb::new(
-            self.dev_addr, self.interrupt_in_ep, EndpointType::Interrupt, UrbDirection::In,
-            8, report.as_mut_ptr(), 8
-        );
-        urb.pid = self.next_pid;
-        
-        if submit_urb(&urb) {
-            // Toggle PID on successful transaction
-            self.next_pid = if self.next_pid == 0 { 2 } else { 0 };
+        // Probe addresses if we haven't locked onto one
+        let addrs_to_try = if self.dev_addr == 0 { 2..=5 } else { self.dev_addr..=self.dev_addr };
 
-            let keycode = report[2];
-            if keycode != 0 && keycode != self.last_keycode {
-                self.last_keycode = keycode;
-                return Some(Self::keycode_to_char(keycode, report[0]));
-            } else if keycode == 0 {
-                self.last_keycode = 0;
+        for addr in addrs_to_try {
+            let mut urb = Urb::new(
+                addr, self.interrupt_in_ep, EndpointType::Bulk, UrbDirection::In,
+                8, report_buf.as_mut_ptr() as *mut u8, 8
+            );
+            urb.pid = self.next_pid;
+            
+            if submit_urb(&urb) {
+                // Lock onto this address
+                self.dev_addr = addr;
+                
+                // Toggle PID on successful transaction
+                self.next_pid = if self.next_pid == 0 { 2 } else { 0 };
+
+                let report_bytes = [
+                    (report_buf[0] & 0xFF) as u8,
+                    ((report_buf[0] >> 8) & 0xFF) as u8,
+                    ((report_buf[0] >> 16) & 0xFF) as u8,
+                    ((report_buf[0] >> 24) & 0xFF) as u8,
+                    (report_buf[1] & 0xFF) as u8,
+                    ((report_buf[1] >> 8) & 0xFF) as u8,
+                    ((report_buf[1] >> 16) & 0xFF) as u8,
+                    ((report_buf[1] >> 24) & 0xFF) as u8,
+                ];
+
+                let keycode = report_bytes[2];
+                if keycode != 0 && keycode != self.last_keycode {
+                    self.last_keycode = keycode;
+                    return Some(Self::keycode_to_char(keycode, report_bytes[0]));
+                } else if keycode == 0 {
+                    self.last_keycode = 0;
+                }
+                return None;
             }
         }
         None
@@ -81,7 +101,7 @@ impl Keyboard {
 
 pub fn init() {
     Hdmi::write_str("USB: Initializing HID Keyboard (Phase 5)...\n");
-    unsafe { KEYBOARD = Some(Keyboard::new(3, 1)); }
+    unsafe { KEYBOARD = Some(Keyboard::new(0, 1)); }
     Hdmi::write_str("USB HID: Keyboard ready.\n");
 }
 

@@ -36,60 +36,79 @@ pub fn submit_urb(urb: &Urb) -> bool {
         | ((pktcnt & 0x3FF) << 19)
         | ((pid as u32 & 0x3) << 29);
 
-    // Write registers
-    write_reg(hc_offset + 0x10, hctsiz); // HCTSIZ
-    write_reg(hc_offset + 0x14, urb.buffer as u32); // HCDMA
+    let is_split = urb.speed != 0;
+    let hub_addr = 1u32;
+    let hub_port = unsafe { crate::driver::usb::ADDR_TO_PORT[(urb.dev_addr & 0xF) as usize] } as u32;
 
-    // Clear all channel interrupts (HCINT)
-    write_reg(hc_offset + 0x08, 0xFFFFFFFF);
+    let hcsplt_ssplit = (1 << 31) | (0 << 16) | (hub_addr << 7) | hub_port;
+    let hcsplt_csplit = (1 << 31) | (1 << 16) | (hub_addr << 7) | hub_port;
 
-    // Enable channel (Set CHENA)
-    hcchar |= 1 << 31;
-    write_reg(hc_offset + 0x00, hcchar); // HCCHAR
+    let do_transaction = |is_csplit: bool| -> bool {
+        write_reg(hc_offset + 0x10, hctsiz); // HCTSIZ
+        write_reg(hc_offset + 0x14, urb.buffer as u32); // HCDMA
+        write_reg(hc_offset + 0x08, 0xFFFFFFFF); // Clear interrupts
+        
+        if is_split {
+            write_reg(hc_offset + 0x04, if is_csplit { hcsplt_csplit } else { hcsplt_ssplit });
+        } else {
+            write_reg(hc_offset + 0x04, 0);
+        }
 
-    // Wait for transfer complete or error
-    let mut spin_count = 0;
-    loop {
-        let hcint = super::registers::read_reg(hc_offset + 0x08);
-        if (hcint & 1) != 0 { // XFERCOMP
+        let mut char_reg = hcchar | (1 << 31); // CHENA
+        write_reg(hc_offset + 0x00, char_reg);
+
+        let mut spin_count = 0;
+        loop {
+            let hcint = super::registers::read_reg(hc_offset + 0x08);
+            if (hcint & 1) != 0 { // XFERCOMP
+                // Wait for CHHLTD
+                while (super::registers::read_reg(hc_offset + 0x08) & 2) == 0 {}
+                return true;
+            }
+            
+            let has_err = (hcint & ((1 << 7) | (1 << 3) | (1 << 9) | (1 << 8) | (1 << 10))) != 0;
+            let has_nak = (hcint & (1 << 4)) != 0; // NYET maps to NAK here
+            
+            if has_err || has_nak {
+                let mut c = super::registers::read_reg(hc_offset + 0x00);
+                c |= (1 << 30) | (1 << 31); // CHDIS | CHENA
+                super::registers::write_reg(hc_offset + 0x00, c);
+                while (super::registers::read_reg(hc_offset + 0x08) & 2) == 0 {}
+                return false;
+            }
+            
+            if (hcint & 2) != 0 { return false; } // CHHLTD without XFERCOMP
+            
+            spin_count += 1;
+            if spin_count > 10_000_000 {
+                let mut c = super::registers::read_reg(hc_offset + 0x00);
+                c |= (1 << 30) | (1 << 31); // CHDIS | CHENA
+                super::registers::write_reg(hc_offset + 0x00, c);
+                while (super::registers::read_reg(hc_offset + 0x08) & 2) == 0 {}
+                return false;
+            }
+        }
+    };
+
+    if !is_split {
+        return do_transaction(false);
+    }
+
+    // SPLIT Transaction
+    // 1. Start Split
+    if !do_transaction(false) {
+        return false;
+    }
+
+    // 2. Complete Split
+    crate::core::utils::delay(1); // Wait for hub to process
+
+    for _ in 0..10 {
+        if do_transaction(true) {
             return true;
         }
-        if (hcint & (1 << 4)) != 0 { // NAK
-            let mut char_reg = super::registers::read_reg(hc_offset + 0x00);
-            char_reg |= (1 << 30) | (1 << 31); // CHDIS | CHENA
-            super::registers::write_reg(hc_offset + 0x00, char_reg);
-            
-            let mut wait_count = 0;
-            loop {
-                if (super::registers::read_reg(hc_offset + 0x08) & 2) != 0 { break; }
-                wait_count += 1;
-                if wait_count > 100_000 { break; }
-            }
-            return false;
-        }
-        if (hcint & (1 << 7)) != 0 { return false; } // XACTERR
-        if (hcint & (1 << 3)) != 0 { return false; } // STALL
-        if (hcint & 2) != 0 { return false; } // CHHLTD (without XFERCOMP)
-        if (hcint & (1 << 9)) != 0 { return false; } // FRMOVRUN
-        if (hcint & (1 << 8)) != 0 { return false; } // BBLERR
-        if (hcint & (1 << 10)) != 0 { return false; } // DATATGLERR
-        
-        spin_count += 1;
-        if spin_count > 50_000_000 {
-            Hdmi::write_str("HCINT HANG! hcint=");
-            for i in (0..8).rev() {
-                let nibble = (hcint >> (i * 4)) & 0xF;
-                let c = if nibble < 10 { (b'0' + nibble as u8) as char } else { (b'A' + (nibble - 10) as u8) as char };
-                Hdmi::draw_char(c);
-            }
-            Hdmi::write_str("\n");
-            
-            // Force halt
-            let mut char_reg = super::registers::read_reg(hc_offset + 0x00);
-            char_reg |= (1 << 30) | (1 << 31); // CHDIS | CHENA
-            super::registers::write_reg(hc_offset + 0x00, char_reg);
-            
-            return false;
-        }
+        crate::core::utils::delay(1); // Retry CSPLIT on NYET (mapped to NAK)
     }
+
+    false
 }

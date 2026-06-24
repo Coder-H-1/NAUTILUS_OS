@@ -26,20 +26,23 @@ pub fn get_device_descriptor(dev_addr: u8) {
         w_length: 18,
     };
 
-    let urb = Urb::new(
-        dev_addr, 0, EndpointType::Control, UrbDirection::Setup,
-        64, &mut req as *mut _ as *mut u8, 8
-    );
+    let urb_setup = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::Setup, 64, &mut req as *mut _ as *mut u8, 8);
+    for _ in 0..1000 { if submit_urb(&urb_setup) { break; } }
     
-    submit_urb(&urb);
+    let mut desc = [0u32; 5]; // 20 bytes, u32 for 4-byte alignment
+    let mut urb_in = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::In, 64, desc.as_mut_ptr() as *mut u8, 18);
+    urb_in.pid = 2; // DATA1
+    for _ in 0..1000 { if submit_urb(&urb_in) { break; } }
+    
+    // Status Stage
+    let mut urb_out = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::Out, 64, core::ptr::null_mut(), 0);
+    urb_out.pid = 2; // DATA1
+    for _ in 0..1000 { if submit_urb(&urb_out) { break; } }
+    
     Hdmi::write_str("USB: Device Descriptor requested.\n");
 }
 
-pub fn set_address(new_addr: u8) {
-    Hdmi::write_str("USB: Setting Address to ");
-    // Fake print address
-    if new_addr == 1 { Hdmi::write_str("1...\n"); } else { Hdmi::write_str("?\n"); }
-
+pub fn set_address(dev_addr: u8, new_addr: u8) {
     let mut req = UsbDeviceRequest {
         bm_request_type: 0x00, // Host to Device
         b_request: REQ_SET_ADDRESS,
@@ -48,17 +51,40 @@ pub fn set_address(new_addr: u8) {
         w_length: 0,
     };
 
-    let urb = Urb::new(
-        0, 0, EndpointType::Control, UrbDirection::Setup,
-        64, &mut req as *mut _ as *mut u8, 8
-    );
+    let urb_setup = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::Setup, 64, &mut req as *mut _ as *mut u8, 8);
+    for _ in 0..1000 { if submit_urb(&urb_setup) { break; } }
     
-    submit_urb(&urb);
+    // Status Stage
+    let mut urb_in = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::In, 64, core::ptr::null_mut(), 0);
+    urb_in.pid = 2; // DATA1 for Status
+    for _ in 0..1000 { if submit_urb(&urb_in) { break; } }
+}
+
+pub fn set_configuration(dev_addr: u8, config_val: u8) {
+    let mut req = UsbDeviceRequest {
+        bm_request_type: 0x00, // Host to Device
+        b_request: REQ_SET_CONFIGURATION,
+        w_value: config_val as u16,
+        w_index: 0,
+        w_length: 0,
+    };
+
+    let urb_setup = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::Setup, 64, &mut req as *mut _ as *mut u8, 8);
+    for _ in 0..1000 { if submit_urb(&urb_setup) { break; } }
+    
+    // Status Stage
+    let mut urb_in = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::In, 64, core::ptr::null_mut(), 0);
+    urb_in.pid = 2; // DATA1 for Status
+    for _ in 0..1000 { if submit_urb(&urb_in) { break; } }
 }
 
 pub fn enumerate() {
     Hdmi::write_str("USB: Starting Enumeration (Phase 3)...\n");
     get_device_descriptor(0);
-    set_address(1);
-    Hdmi::write_str("USB: Enumeration basic steps sent!\n");
+    set_address(0, 1);
+    
+    crate::core::utils::delay(10); // Wait for address to settle
+    set_configuration(1, 1); // Configure Hub
+    
+    Hdmi::write_str("USB: Hub Enumerated!\n");
 }
