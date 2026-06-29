@@ -1,6 +1,13 @@
 use crate::driver::usb::urb::{Urb, UrbDirection};
-use crate::driver::hdmi::Hdmi;
+
 use super::registers::write_reg;
+
+#[derive(PartialEq)]
+enum TransResult {
+    Success,
+    Nak,
+    Error,
+}
 
 pub fn submit_urb(urb: &Urb) -> bool {
     let hc_offset = 0x500; // Host Channel 0 base
@@ -43,8 +50,15 @@ pub fn submit_urb(urb: &Urb) -> bool {
     let hcsplt_ssplit = (1 << 31) | (0 << 16) | (hub_addr << 7) | hub_port;
     let hcsplt_csplit = (1 << 31) | (1 << 16) | (hub_addr << 7) | hub_port;
 
-    let do_transaction = |is_csplit: bool| -> bool {
-        write_reg(hc_offset + 0x10, hctsiz); // HCTSIZ
+    let do_transaction = |is_csplit: bool| -> TransResult {
+        let mut current_hctsiz = hctsiz;
+        if is_split && is_csplit && urb.direction == UrbDirection::Out {
+            // CSPLIT OUT has transfer size 0, packet count 1
+            current_hctsiz = (0 & 0x7FFFF)
+                | (1 << 19)
+                | ((pid as u32 & 0x3) << 29);
+        }
+        write_reg(hc_offset + 0x10, current_hctsiz); // HCTSIZ
         write_reg(hc_offset + 0x14, urb.buffer as u32); // HCDMA
         write_reg(hc_offset + 0x08, 0xFFFFFFFF); // Clear interrupts
         
@@ -54,61 +68,84 @@ pub fn submit_urb(urb: &Urb) -> bool {
             write_reg(hc_offset + 0x04, 0);
         }
 
-        let mut char_reg = hcchar | (1 << 31); // CHENA
+        let char_reg = hcchar | (1 << 31); // CHENA
         write_reg(hc_offset + 0x00, char_reg);
 
-        let mut spin_count = 0;
+        let start_time = crate::driver::timer::Timer::get_time_us();
         loop {
             let hcint = super::registers::read_reg(hc_offset + 0x08);
             if (hcint & 1) != 0 { // XFERCOMP
                 // Wait for CHHLTD
-                while (super::registers::read_reg(hc_offset + 0x08) & 2) == 0 {}
-                return true;
+                let mut halt_timeout = 100_000;
+                while (super::registers::read_reg(hc_offset + 0x08) & 2) == 0 && halt_timeout > 0 { halt_timeout -= 1; }
+                return TransResult::Success;
             }
             
             let has_err = (hcint & ((1 << 7) | (1 << 3) | (1 << 9) | (1 << 8) | (1 << 10))) != 0;
-            let has_nak = (hcint & (1 << 4)) != 0; // NYET maps to NAK here
+            let has_nak = (hcint & ((1 << 4) | (1 << 6))) != 0; // NAK or NYET
             
             if has_err || has_nak {
                 let mut c = super::registers::read_reg(hc_offset + 0x00);
                 c |= (1 << 30) | (1 << 31); // CHDIS | CHENA
                 super::registers::write_reg(hc_offset + 0x00, c);
-                while (super::registers::read_reg(hc_offset + 0x08) & 2) == 0 {}
-                return false;
+                let mut halt_timeout = 100_000;
+                while (super::registers::read_reg(hc_offset + 0x08) & 2) == 0 && halt_timeout > 0 { halt_timeout -= 1; }
+                if has_nak && !has_err {
+                    return TransResult::Nak;
+                }
+                return TransResult::Error;
             }
             
-            if (hcint & 2) != 0 { return false; } // CHHLTD without XFERCOMP
+            if (hcint & 2) != 0 { return TransResult::Error; } // CHHLTD without XFERCOMP
             
-            spin_count += 1;
-            if spin_count > 10_000_000 {
+            if crate::driver::timer::Timer::get_time_us() - start_time > 100_000 { // 100ms timeout
                 let mut c = super::registers::read_reg(hc_offset + 0x00);
                 c |= (1 << 30) | (1 << 31); // CHDIS | CHENA
                 super::registers::write_reg(hc_offset + 0x00, c);
-                while (super::registers::read_reg(hc_offset + 0x08) & 2) == 0 {}
-                return false;
+                let mut halt_timeout = 100_000;
+                while (super::registers::read_reg(hc_offset + 0x08) & 2) == 0 && halt_timeout > 0 { halt_timeout -= 1; }
+                return TransResult::Error;
             }
         }
     };
 
     if !is_split {
-        return do_transaction(false);
+        for _ in 0..100 {
+            let res = do_transaction(false);
+            if res == TransResult::Success { return true; }
+            if res == TransResult::Error { return false; }
+            // If NAK, wait and retry
+            crate::core::utils::delay(1);
+        }
+        return false;
     }
 
     // SPLIT Transaction
     // 1. Start Split
-    if !do_transaction(false) {
-        return false;
+    let mut ssplit_success = false;
+    for _ in 0..100 {
+        let res = do_transaction(false);
+        if res == TransResult::Success { 
+            ssplit_success = true;
+            break; 
+        }
+        if res == TransResult::Error { return false; }
+        // If NAK on SSPLIT, wait and retry
+        crate::core::utils::delay(1);
     }
+    
+    if !ssplit_success { return false; }
 
     // 2. Complete Split
     crate::core::utils::delay(1); // Wait for hub to process
 
-    for _ in 0..10 {
-        if do_transaction(true) {
-            return true;
-        }
-        crate::core::utils::delay(1); // Retry CSPLIT on NYET (mapped to NAK)
+    for _ in 0..100 {
+        let res = do_transaction(true);
+        if res == TransResult::Success { return true; }
+        if res == TransResult::Error { return false; }
+        crate::core::utils::delay(1); // Retry CSPLIT on NYET/NAK
     }
 
     false
 }
+

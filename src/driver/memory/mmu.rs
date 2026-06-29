@@ -54,7 +54,7 @@ pub fn init() {
     }
 }
 
-pub fn map_page(virt_addr: usize, phys_addr: usize, flags: u64) {
+pub fn map_page(_virt_addr: usize, _phys_addr: usize, _flags: u64) {
     // In a full implementation, this walks the 4-level page table:
     // L0 -> L1 -> L2 -> L3
     // Since this is bare metal, we extract indices from the virtual address:

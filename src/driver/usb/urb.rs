@@ -35,7 +35,15 @@ impl Urb {
         buffer: *mut u8,
         buffer_length: u32,
     ) -> Self {
-        let speed = if dev_addr <= 1 { 0 } else { 1 }; // Hubs are HS (0), devices are FS (1)
+        let speed = unsafe {
+            if dev_addr == 0 {
+                crate::driver::usb::ADDR_TO_SPEED[0]
+            } else if dev_addr == 1 {
+                0
+            } else {
+                crate::driver::usb::ADDR_TO_SPEED[dev_addr as usize]
+            }
+        };
         Urb {
             dev_addr,
             ep_num,

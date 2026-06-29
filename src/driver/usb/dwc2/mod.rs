@@ -56,7 +56,14 @@ pub fn init() {
     hprt |= 1 << 12; // PrtPwr
     write_reg(0x440, hprt);
     
-    delay(50); // Wait 50ms for port power
+    // Wait for connection detection (max 100ms)
+    let start_detect = crate::driver::clock::Clock::get_uptime_ms();
+    while (read_reg(0x440) & (1 << 16)) == 0 {
+        if crate::driver::clock::Clock::get_uptime_ms() - start_detect > 100 {
+            break;
+        }
+        delay(1);
+    }
     
     Hdmi::write_str("DWC2: Resetting Root Port...\n");
     hprt = read_reg(0x440);
@@ -64,7 +71,7 @@ pub fn init() {
     hprt |= 1 << 8; // PrtRst
     write_reg(0x440, hprt);
     
-    delay(50); // Wait 50ms for reset
+    delay(50); // Wait 50ms for reset (USB spec min)
     
     hprt = read_reg(0x440);
     hprt &= !( (1 << 1) | (1 << 3) | (1 << 5) | (1 << 8) );

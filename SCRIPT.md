@@ -19,7 +19,7 @@
 
     pin pin_number > ON/OFF delay ON/OFF delay            # runs only once
 
-    pin pin_number inf > ON/OFF delay ON/OFF delay        # runs infinitely 
+    pin pin_number inf > ON/OFF delay ON/OFF delay     a   # runs infinitely 
 
     for random number : 
     pin pin_number inf > ON/OFF random number ? ON/OFF random number ?      # runs infinitely 

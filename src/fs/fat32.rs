@@ -45,8 +45,9 @@ pub struct Fat32<T: BlockDevice> {
 impl<T: BlockDevice> Fat32<T> {
     pub fn new(device: T) -> Self {
         Hdmi::write_str("FAT32: Reading MBR to find partition...\n");
-        let mut block = [0u8; 512];
-        if device.read_block(0, &mut block).is_err() {
+        let mut block_align = [0u32; 128]; // 512 bytes, 4-byte aligned
+        let block = unsafe { &mut *(&mut block_align as *mut [u32; 128] as *mut [u8; 512]) };
+        if device.read_block(0, block).is_err() {
             Hdmi::write_str("FAT32: Failed to read MBR\n");
             // Return dummy on error
             return Self::dummy(device);
@@ -68,7 +69,7 @@ impl<T: BlockDevice> Fat32<T> {
         ]);
 
         Hdmi::write_str("FAT32: Found partition. Reading Boot Sector...\n");
-        if device.read_block(partition_lba, &mut block).is_err() {
+        if device.read_block(partition_lba, block).is_err() {
             Hdmi::write_str("FAT32: Failed to read Boot Sector\n");
             return Self::dummy(device);
         }

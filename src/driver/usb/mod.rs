@@ -2,11 +2,11 @@
 pub mod dwc2_module;
 pub mod setup;
 pub mod mass_storage;
-pub mod keyboard;
 pub mod urb;
 pub mod hub;
 
 pub static mut ADDR_TO_PORT: [u8; 16] = [0; 16];
+pub static mut ADDR_TO_SPEED: [u8; 16] = [0; 16];
 
 use crate::driver::hdmi::Hdmi;
 
@@ -25,7 +25,7 @@ pub fn init() {
     hub::power_on_ports(1, 4); // Assume LAN9514 has 4 ports on addr 1
     
     // Give devices time to power up and signal connection
-    crate::core::utils::delay(500);
+    crate::core::utils::delay(1000);
     
     // Enumerate devices on hub ports, starting from address 2
     hub::enumerate_ports(1, 4, 2);
@@ -33,7 +33,6 @@ pub fn init() {
     Hdmi::write_str("Phase 3 Init Done.\n");
 
     mass_storage::init();
-    keyboard::init();
     
     Hdmi::write_str("USB Fully Initialized!\n");
 }

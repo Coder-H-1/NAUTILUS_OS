@@ -27,19 +27,47 @@ pub fn get_device_descriptor(dev_addr: u8) {
     };
 
     let urb_setup = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::Setup, 64, &mut req as *mut _ as *mut u8, 8);
-    for _ in 0..1000 { if submit_urb(&urb_setup) { break; } }
+    for _ in 0..3 { if submit_urb(&urb_setup) { break; } }
     
     let mut desc = [0u32; 5]; // 20 bytes, u32 for 4-byte alignment
     let mut urb_in = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::In, 64, desc.as_mut_ptr() as *mut u8, 18);
     urb_in.pid = 2; // DATA1
-    for _ in 0..1000 { if submit_urb(&urb_in) { break; } }
+    for _ in 0..3 { if submit_urb(&urb_in) { break; } }
     
     // Status Stage
     let mut urb_out = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::Out, 64, core::ptr::null_mut(), 0);
     urb_out.pid = 2; // DATA1
-    for _ in 0..1000 { if submit_urb(&urb_out) { break; } }
+    for _ in 0..3 { if submit_urb(&urb_out) { break; } }
     
     Hdmi::write_str("USB: Device Descriptor requested.\n");
+}
+
+pub fn get_config_descriptor(dev_addr: u8, buf: *mut u8, len: u16) -> bool {
+    let mut req = UsbDeviceRequest {
+        bm_request_type: 0x80, // Device to Host
+        b_request: REQ_GET_DESCRIPTOR,
+        w_value: 0x0200, // Descriptor type 2 (Configuration)
+        w_index: 0,
+        w_length: len,
+    };
+
+    let urb_setup = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::Setup, 64, &mut req as *mut _ as *mut u8, 8);
+    let mut success = false;
+    for _ in 0..3 { if submit_urb(&urb_setup) { success = true; break; } }
+    if !success { return false; }
+    
+    let mut urb_in = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::In, 64, buf, len as u32);
+    urb_in.pid = 2; // DATA1
+    success = false;
+    for _ in 0..3 { if submit_urb(&urb_in) { success = true; break; } }
+    if !success { return false; }
+    
+    // Status Stage
+    let mut urb_out = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::Out, 64, core::ptr::null_mut(), 0);
+    urb_out.pid = 2; // DATA1
+    for _ in 0..3 { if submit_urb(&urb_out) { break; } }
+    
+    true
 }
 
 pub fn set_address(dev_addr: u8, new_addr: u8) {
@@ -52,12 +80,12 @@ pub fn set_address(dev_addr: u8, new_addr: u8) {
     };
 
     let urb_setup = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::Setup, 64, &mut req as *mut _ as *mut u8, 8);
-    for _ in 0..1000 { if submit_urb(&urb_setup) { break; } }
+    for _ in 0..3 { if submit_urb(&urb_setup) { break; } }
     
     // Status Stage
     let mut urb_in = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::In, 64, core::ptr::null_mut(), 0);
     urb_in.pid = 2; // DATA1 for Status
-    for _ in 0..1000 { if submit_urb(&urb_in) { break; } }
+    for _ in 0..3 { if submit_urb(&urb_in) { break; } }
 }
 
 pub fn set_configuration(dev_addr: u8, config_val: u8) {
@@ -70,12 +98,12 @@ pub fn set_configuration(dev_addr: u8, config_val: u8) {
     };
 
     let urb_setup = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::Setup, 64, &mut req as *mut _ as *mut u8, 8);
-    for _ in 0..1000 { if submit_urb(&urb_setup) { break; } }
+    for _ in 0..3 { if submit_urb(&urb_setup) { break; } }
     
     // Status Stage
     let mut urb_in = Urb::new(dev_addr, 0, EndpointType::Control, UrbDirection::In, 64, core::ptr::null_mut(), 0);
     urb_in.pid = 2; // DATA1 for Status
-    for _ in 0..1000 { if submit_urb(&urb_in) { break; } }
+    for _ in 0..3 { if submit_urb(&urb_in) { break; } }
 }
 
 pub fn enumerate() {
