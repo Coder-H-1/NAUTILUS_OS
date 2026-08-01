@@ -40,7 +40,7 @@ The primary focus of this project is learning systems programming by writing dri
 ## PROJECT STRUCTURE
 
 ```text
-NAUTILUS_OS/
+NAUTILUS_OS/ 
 ├── Cargo.toml       - Rust project metadata and dependencies.
 ├── Makefile         - Build instructions utilizing cargo objcopy.
 ├── README.md        - Basic overview and goals.
